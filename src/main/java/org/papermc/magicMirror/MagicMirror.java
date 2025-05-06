@@ -21,6 +21,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitScheduler;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.util.*;
 
@@ -29,6 +30,7 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
     private FileConfiguration config;
     private static final String homesKey = "homes";
     private Set<UUID> warpingPlayers = new HashSet<>();
+    private Map<UUID, List<BukkitTask>> warpingTasks = new HashMap<>();
 
     private String itemName = "";
     private int teleportWindup = 3;
@@ -148,11 +150,12 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
             if (enableSounds) player.playSound(player.getLocation(), Sound.BLOCK_BELL_USE, SoundCategory.PLAYERS, soundVolume, 0.5f);
             if (enableParticles) player.spawnParticle(Particle.GLOW, player.getLocation().clone().add(0, 1, 0), 100, 1, 1, 1, 1);
             BukkitScheduler scheduler = Bukkit.getScheduler();
+            List<BukkitTask> tasks = new ArrayList<>();
             if (enableMessages || enableSounds) {
                 for (int i = 1; i < teleportWindup; i++) {
                     Component message = Component.text(String.format("Warping home in %d...", teleportWindup - i), NamedTextColor.GREEN);
                     float pitch = 0.5f + (i / (float) teleportWindup) * 0.5f;
-                    scheduler.runTaskLater(
+                    tasks.add(scheduler.runTaskLater(
                             this,
                             () -> {
                                 if (!warpingPlayers.contains(player.getUniqueId())) return; // no-op for players removed from the active warping
@@ -160,28 +163,36 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
                                     player.playSound(player.getLocation(), Sound.BLOCK_BELL_USE, SoundCategory.PLAYERS, soundVolume, pitch);
                                 if (enableMessages) player.sendMessage(message);
                             },
-                            20L * i);
+                            20L * i));
                 }
             }
             Location finalTarget = target;
-            scheduler.runTaskLater(
+            tasks.add(scheduler.runTaskLater(
                     this,
                     () -> teleportPlayer(player, finalTarget),
                     20L * teleportWindup
-            );
+            ));
+            warpingTasks.put(player.getUniqueId(), tasks);
         }
     }
 
     @EventHandler
     public void onPlayerDeathEvent(PlayerDeathEvent event) {
-        UUID uuid = event.getEntity().getUniqueId();
-        warpingPlayers.remove(uuid); // remove player from warping players if they died during the windup
+        terminatePlayerWarp(event.getPlayer()); // remove player from warping players if they died during the windup
     }
 
     @EventHandler
     public void onPlayerQuitEvent(PlayerQuitEvent event) {
-        UUID uuid = event.getPlayer().getUniqueId();
-        warpingPlayers.remove(uuid); // remove player from warping players if they quit during the windup
+        terminatePlayerWarp(event.getPlayer()); // remove player from warping players if they quit during the windup
+    }
+
+    private void terminatePlayerWarp(Player player) {
+        UUID uuid = player.getUniqueId();
+        warpingPlayers.remove(uuid);
+        List<BukkitTask> tasks = warpingTasks.get(uuid);
+        if (tasks != null) {
+            tasks.forEach(BukkitTask::cancel);
+        }
     }
 
     private void teleportPlayer(Player player, Location loc) {
