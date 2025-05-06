@@ -146,6 +146,7 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
         } else {
             if (enableMessages) player.sendMessage(Component.text(String.format("Warping home in %d...", teleportWindup), NamedTextColor.GREEN));
             if (enableSounds) player.playSound(player.getLocation(), Sound.BLOCK_BELL_USE, SoundCategory.PLAYERS, soundVolume, 0.5f);
+            if (enableParticles) player.spawnParticle(Particle.GLOW, player.getLocation().clone().add(0, 1, 0), 100, 1, 1, 1, 1);
             BukkitScheduler scheduler = Bukkit.getScheduler();
             if (enableMessages || enableSounds) {
                 for (int i = 1; i < teleportWindup; i++) {
@@ -191,7 +192,7 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
         player.teleport(loc);
         World world = loc.getWorld();
         if (enableSounds) world.playSound(loc, Sound.ENTITY_WARDEN_SONIC_BOOM, SoundCategory.PLAYERS, soundVolume, 1.0f);
-        if (enableParticles) world.spawnParticle(Particle.SONIC_BOOM, loc.clone().add(0, 1, 0), 1, 0, 0, 0, 0);
+        if (enableParticles) player.spawnParticle(Particle.GLOW, player.getLocation().clone().add(0, 1, 0), 100, 1, 1, 1, 1);
     }
 
     private int getHomeCount() {
