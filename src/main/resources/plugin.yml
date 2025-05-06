@@ -1,5 +1,5 @@
 name: MagicMirror
-version: '0.1'
+version: '1.0'
 main: org.papermc.magicMirror.MagicMirror
 api-version: '1.21'
 load: STARTUP
@@ -10,3 +10,8 @@ commands:
   reloadmagicmirror:
     description:  "Reload the config for magic mirror"
     usage: /reloadmagicmirror
+    permission: magicmirror.reload
+permissions:
+  magicmirror.reload:
+    description: "Allows reloading the MagicMirror configuration"
+    default: op

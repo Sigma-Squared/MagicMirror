@@ -3,6 +3,7 @@ package org.papermc.magicMirror;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.*;
+import org.bukkit.block.Block;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -11,7 +12,10 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.Action;
+import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -30,10 +34,12 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
     private int teleportWindup = 3;
     private boolean enableSounds  = true;
     private boolean enableParticles = true;
+    private boolean defaultWorldSpawn = true;
+    private float soundVolume = 1.0f;
+    private boolean enableMessages = true;
 
     @Override
     public void onEnable() {
-        // Plugin startup logic
         this.saveDefaultConfig();
         readConfig();
         getLogger().info(String.format("Loaded %d homes.", getHomeCount()));
@@ -44,7 +50,7 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
 
     @Override
     public void onDisable() {
-        // Plugin shutdown logic
+        warpingPlayers.clear();
     }
 
     @Override
@@ -52,6 +58,7 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
         String cmd = command.getName().toLowerCase();
         if (cmd.equals("reloadmagicmirror")) {
             reloadConfig();
+            readConfig();
             sender.sendMessage("MagicMirror configuration reloaded.");
             return true;
         }
@@ -86,12 +93,14 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
         if (event.getHand() != EquipmentSlot.HAND) return;
         ItemStack item = event.getPlayer().getInventory().getItemInMainHand();
         if (item.getType() != Material.RECOVERY_COMPASS) return;
+        Action action = event.getAction();
+        if (!(action == Action.RIGHT_CLICK_AIR || action == Action.RIGHT_CLICK_BLOCK)) return;
 
         if (!itemName.isEmpty()) {
             if (!item.hasItemMeta()) return;
             ItemMeta meta  = item.getItemMeta();
             if (!meta.hasCustomName()) return;
-            if (!itemName.equals(meta.customName().toString())) return;
+            if (!meta.customName().equals(Component.text(itemName))) return;
         }
 
         event.setCancelled(true);
@@ -103,62 +112,111 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
             return;
         }
 
-        Location target;
+        Location target = defaultWorldSpawn ? getServer().getWorlds().get(0).getSpawnLocation() : null; // target is world spawn by default
+        String worldSpawnText = defaultWorldSpawn ? " Teleporting to world spawn instead." : "";
         String playerHomeConfigPath = String.format("%s.%s", homesKey, uuid);
         if (!config.contains(playerHomeConfigPath)) {
-            player.sendMessage(Component.text("No home set. Use /sethome to set your home. Teleporting to world spawn.", NamedTextColor.YELLOW));
-            World defaultWorld  = getServer().getWorlds().get(0);
-            target = defaultWorld.getSpawnLocation();
+            player.sendMessage(Component.text(String.format("No home set. Use /sethome to set your home.%s", worldSpawnText), NamedTextColor.YELLOW));
         } else {
-            target = new Location(
-                    Bukkit.getWorld(config.getString(playerHomeConfigPath + ".world")),
-                    config.getDouble(playerHomeConfigPath + ".x"),
-                    config.getDouble(playerHomeConfigPath + ".y"),
-                    config.getDouble(playerHomeConfigPath + ".z"),
-                    (float) config.getDouble(playerHomeConfigPath + ".yaw"),
-                    (float) config.getDouble(playerHomeConfigPath + ".pitch")
-            );
+            World world = Bukkit.getWorld(config.getString(playerHomeConfigPath + ".world"));
+            if (world == null) {
+                player.sendMessage(Component.text(String.format("Your home world is deleted!%s", worldSpawnText), NamedTextColor.DARK_RED));
+            } else {
+                Location homeLoc = new Location(
+                        world,
+                        config.getDouble(playerHomeConfigPath + ".x"),
+                        config.getDouble(playerHomeConfigPath + ".y"),
+                        config.getDouble(playerHomeConfigPath + ".z"),
+                        (float) config.getDouble(playerHomeConfigPath + ".yaw"),
+                        (float) config.getDouble(playerHomeConfigPath + ".pitch")
+                );
+                if (isLocationSafe(homeLoc)) {
+                    target = homeLoc;
+                } else {
+                    player.sendMessage(Component.text(String.format("Your home location is blocked.%s", worldSpawnText), NamedTextColor.DARK_RED));
+                }
+            }
         }
 
-        if (enableSounds) player.playSound(target, Sound.ENTITY_WARDEN_SONIC_CHARGE, 1.0f, 1.0f);
-        player.sendMessage(Component.text(String.format("Warping in %d...", teleportWindup), NamedTextColor.GREEN));
-        BukkitScheduler scheduler = Bukkit.getScheduler();
-        for (int i = 1; i < teleportWindup; i++) {
-            int timeLeft = teleportWindup - i;
+        if (target == null) return;
+
+        warpingPlayers.add(uuid);
+        if (teleportWindup == 0) {
+            teleportPlayer(player, target);
+        } else {
+            if (enableMessages) player.sendMessage(Component.text(String.format("Warping home in %d...", teleportWindup), NamedTextColor.GREEN));
+            if (enableSounds) player.playSound(player.getLocation(), Sound.BLOCK_BELL_USE, SoundCategory.PLAYERS, soundVolume, 0.5f);
+            BukkitScheduler scheduler = Bukkit.getScheduler();
+            if (enableMessages || enableSounds) {
+                for (int i = 1; i < teleportWindup; i++) {
+                    Component message = Component.text(String.format("Warping home in %d...", teleportWindup - i), NamedTextColor.GREEN);
+                    float pitch = 0.5f + (i / (float) teleportWindup) * 0.5f;
+                    scheduler.runTaskLater(
+                            this,
+                            () -> {
+                                if (!warpingPlayers.contains(player.getUniqueId())) return; // no-op for players removed from the active warping
+                                if (enableSounds)
+                                    player.playSound(player.getLocation(), Sound.BLOCK_BELL_USE, SoundCategory.PLAYERS, soundVolume, pitch);
+                                if (enableMessages) player.sendMessage(message);
+                            },
+                            20L * i);
+                }
+            }
+            Location finalTarget = target;
             scheduler.runTaskLater(
                     this,
-                    () -> player.sendMessage(Component.text(String.format("Warping in %d...", timeLeft), NamedTextColor.GREEN)),
-                    20L*i);
+                    () -> teleportPlayer(player, finalTarget),
+                    20L * teleportWindup
+            );
         }
-        scheduler.runTaskLater(
-                this,
-                () -> teleportPlayerHome(player, target),
-                20L*teleportWindup
-        );
-        warpingPlayers.add(uuid);
     }
 
-    private void teleportPlayerHome(Player player, Location home) {
+    @EventHandler
+    public void onPlayerDeathEvent(PlayerDeathEvent event) {
+        UUID uuid = event.getEntity().getUniqueId();
+        warpingPlayers.remove(uuid); // remove player from warping players if they died during the windup
+    }
+
+    @EventHandler
+    public void onPlayerQuitEvent(PlayerQuitEvent event) {
+        UUID uuid = event.getPlayer().getUniqueId();
+        warpingPlayers.remove(uuid); // remove player from warping players if they quit during the windup
+    }
+
+    private void teleportPlayer(Player player, Location loc) {
         UUID uuid = player.getUniqueId();
-        warpingPlayers.remove(uuid);
-        if (player.isDead()) return;
-        player.teleport(home);
-        World world = home.getWorld();
-        if (enableSounds) world.playSound(home, Sound.ENTITY_WARDEN_SONIC_BOOM, 1.0f, 1.0f);
-        if (enableParticles) world.spawnParticle(Particle.SONIC_BOOM, home, 20, 0.5, 0.5, 0.5, 0.1);
+        boolean shouldWarp = warpingPlayers.remove(uuid);
+        if (!shouldWarp) return; // Don't warp players that died during the windup
+        if (player.isDead()) return; // Don't warp currently dead players
+        player.teleport(loc);
+        World world = loc.getWorld();
+        if (enableSounds) world.playSound(loc, Sound.ENTITY_WARDEN_SONIC_BOOM, SoundCategory.PLAYERS, soundVolume, 1.0f);
+        if (enableParticles) world.spawnParticle(Particle.SONIC_BOOM, loc.clone().add(0, 1, 0), 1, 0, 0, 0, 0);
     }
 
     private int getHomeCount() {
         ConfigurationSection homesSection = config.getConfigurationSection(homesKey);
-        if (homesSection == null) return 0;
+        if (homesSection == null) {
+            getLogger().warning("homes configuration is null.");
+            return 0;
+        }
         return homesSection.getKeys(false).size();
     }
 
     private void readConfig() {
         config = this.getConfig();
         itemName = config.getString("item-name", "");
-        teleportWindup = config.getInt("windup", 3);
+        teleportWindup = Math.max(0, config.getInt("windup", 3));
         enableParticles = config.getBoolean("enable-particles", true);
         enableSounds = config.getBoolean("enable-sounds", true);
+        defaultWorldSpawn = config.getBoolean("default-world-spawn", true);
+        soundVolume = Math.clamp((float) config.getDouble("sound-effects-volume", 1.0), 0.0f, 1.0f);
+        enableMessages = config.getBoolean("enable-messages", true);
+    }
+
+    private boolean isLocationSafe(Location loc) {
+        Block feet = loc.getBlock();
+        Block head = loc.clone().add(0, 1, 0).getBlock();
+        return !feet.getType().isSolid() && !head.getType().isSolid();
     }
 }
