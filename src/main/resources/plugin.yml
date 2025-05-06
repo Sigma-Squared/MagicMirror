@@ -1,0 +1,5 @@
+name: MagicMirror
+version: '1.0-SNAPSHOT'
+main: org.papermc.magicMirror.MagicMirror
+api-version: '1.21'
+load: STARTUP
