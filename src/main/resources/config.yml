@@ -1,2 +1,5 @@
 homes: {}
 item-name: "Magic Mirror"
+windup: 3
+enable-particles: true
+enable-sounds: true

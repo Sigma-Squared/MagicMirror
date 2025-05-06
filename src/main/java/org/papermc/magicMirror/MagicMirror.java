@@ -2,10 +2,7 @@ package org.papermc.magicMirror;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
-import org.bukkit.Bukkit;
-import org.bukkit.Location;
-import org.bukkit.Sound;
-import org.bukkit.World;
+import org.bukkit.*;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -15,25 +12,30 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerInteractEvent;
-import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitScheduler;
 
-import java.util.UUID;
+import java.util.*;
 
 public final class MagicMirror extends JavaPlugin implements Listener, CommandExecutor {
 
     private FileConfiguration config;
-    private String itemName;
     private static final String homesKey = "homes";
+    private Set<UUID> warpingPlayers = new HashSet<>();
+
+    private String itemName;
+    private int teleportWindup = 10;
+    private boolean enableSounds  = true;
+    private boolean enableParticles = true;
 
     @Override
     public void onEnable() {
         // Plugin startup logic
         this.saveDefaultConfig();
-        config = this.getConfig();
+        readConfig();
         getLogger().info(String.format("Loaded %d homes.", getHomeCount()));
         Bukkit.getPluginManager().registerEvents(this, this);
         this.getCommand("sethome").setExecutor(this);
@@ -75,15 +77,16 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
     public void onPlayerInteract(PlayerInteractEvent event) {
         if (event.getHand() != EquipmentSlot.HAND) return;
         ItemStack item = event.getPlayer().getInventory().getItemInMainHand();
-        if (!item.hasItemMeta()) return;
-
-        ItemMeta meta = item.getItemMeta();
-        if (!meta.hasDisplayName()) return;
-        if (!meta.displayName().equals("Magic Mirror")) return;
+        if (item.getType() != Material.RECOVERY_COMPASS) return;
 
         event.setCancelled(true);
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();
+
+        if (warpingPlayers.contains(uuid)) {
+            player.sendMessage(Component.text("You are already teleporting.", NamedTextColor.DARK_RED));
+            return;
+        }
 
         Location target;
         String playerHomeConfigPath = String.format("%s.%s", homesKey, uuid);
@@ -102,9 +105,32 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
             );
         }
 
-        // Teleport and play sound
-        player.teleport(target);
-        player.playSound(target, Sound.ENTITY_ENDERMAN_TELEPORT, 1.0f, 1.0f);
+        if (enableSounds) player.playSound(target, Sound.ENTITY_WARDEN_SONIC_CHARGE, 1.0f, 1.0f);
+        player.sendMessage(Component.text(String.format("Warping in %d...", teleportWindup), NamedTextColor.GREEN));
+        BukkitScheduler scheduler = Bukkit.getScheduler();
+        for (int i = 1; i < teleportWindup; i++) {
+            int timeLeft = teleportWindup - i;
+            scheduler.runTaskLater(
+                    this,
+                    () -> player.sendMessage(Component.text(String.format("Warping in %d...", timeLeft), NamedTextColor.GREEN)),
+                    20L*i);
+        }
+        scheduler.runTaskLater(
+                this,
+                () -> teleportPlayerHome(player, target),
+                20L*teleportWindup
+        );
+        warpingPlayers.add(uuid);
+    }
+
+    private void teleportPlayerHome(Player player, Location home) {
+        UUID uuid = player.getUniqueId();
+        warpingPlayers.remove(uuid);
+        if (player.isDead()) return;
+        player.teleport(home);
+        World world = home.getWorld();
+        if (enableSounds) world.playSound(home, Sound.ENTITY_WARDEN_SONIC_BOOM, 1.0f, 1.0f);
+        if (enableParticles) world.spawnParticle(Particle.SONIC_BOOM, home, 20, 0.5, 0.5, 0.5, 0.1);
     }
 
     private int getHomeCount() {
@@ -114,5 +140,9 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
         }
         // Count direct child keys (UUIDs)
         return homesSection.getKeys(false).size();
+    }
+
+    private void readConfig() {
+        config = this.getConfig();
     }
 }
