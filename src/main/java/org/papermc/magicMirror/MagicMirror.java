@@ -2,6 +2,7 @@ package org.papermc.magicMirror;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.command.Command;
@@ -29,14 +30,12 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
 
     private FileConfiguration config;
     private static final String homesKey = "homes";
-    private Set<UUID> warpingPlayers = new HashSet<>();
     private Map<UUID, List<BukkitTask>> warpingTasks = new HashMap<>();
 
     private String itemName = "";
     private int teleportWindup = 3;
     private boolean enableSounds  = true;
     private boolean enableParticles = true;
-    private boolean defaultWorldSpawn = true;
     private float soundVolume = 1.0f;
     private boolean enableMessages = true;
 
@@ -52,7 +51,10 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
 
     @Override
     public void onDisable() {
-        warpingPlayers.clear();
+        for (UUID uuid: warpingTasks.keySet()) {
+            warpingTasks.get(uuid).forEach(BukkitTask::cancel);
+        }
+        warpingTasks.clear();
     }
 
     @Override
@@ -102,49 +104,24 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
             if (!item.hasItemMeta()) return;
             ItemMeta meta  = item.getItemMeta();
             if (!meta.hasCustomName()) return;
-            if (!meta.customName().equals(Component.text(itemName))) return;
+            String plainTextCustomName = PlainTextComponentSerializer.plainText().serialize(meta.customName());
+            if (!plainTextCustomName.equals(itemName)) return;
         }
 
         event.setCancelled(true);
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();
 
-        if (warpingPlayers.contains(uuid)) {
-            player.sendMessage(Component.text("You are already teleporting.", NamedTextColor.DARK_RED));
+        if (warpingTasks.containsKey(uuid)) {
+            player.sendMessage(Component.text("You are already warping.", NamedTextColor.DARK_RED));
             return;
         }
 
-        Location target = defaultWorldSpawn ? getServer().getWorlds().get(0).getSpawnLocation() : null; // target is world spawn by default
-        String worldSpawnText = defaultWorldSpawn ? " Teleporting to world spawn instead." : "";
-        String playerHomeConfigPath = String.format("%s.%s", homesKey, uuid);
-        if (!config.contains(playerHomeConfigPath)) {
-            player.sendMessage(Component.text(String.format("No home set. Use /sethome to set your home.%s", worldSpawnText), NamedTextColor.YELLOW));
-        } else {
-            World world = Bukkit.getWorld(config.getString(playerHomeConfigPath + ".world"));
-            if (world == null) {
-                player.sendMessage(Component.text(String.format("Your home world is deleted!%s", worldSpawnText), NamedTextColor.DARK_RED));
-            } else {
-                Location homeLoc = new Location(
-                        world,
-                        config.getDouble(playerHomeConfigPath + ".x"),
-                        config.getDouble(playerHomeConfigPath + ".y"),
-                        config.getDouble(playerHomeConfigPath + ".z"),
-                        (float) config.getDouble(playerHomeConfigPath + ".yaw"),
-                        (float) config.getDouble(playerHomeConfigPath + ".pitch")
-                );
-                if (isLocationSafe(homeLoc)) {
-                    target = homeLoc;
-                } else {
-                    player.sendMessage(Component.text(String.format("Your home location is blocked.%s", worldSpawnText), NamedTextColor.DARK_RED));
-                }
-            }
-        }
+        Location home = getWarpLocation(player);
 
-        if (target == null) return;
-
-        warpingPlayers.add(uuid);
         if (teleportWindup == 0) {
-            teleportPlayer(player, target);
+            warpingTasks.put(player.getUniqueId(), new ArrayList<>());
+            teleportPlayer(player, home);
         } else {
             if (enableMessages) player.sendMessage(Component.text(String.format("Warping home in %d...", teleportWindup), NamedTextColor.GREEN));
             if (enableSounds) player.playSound(player.getLocation(), Sound.BLOCK_BELL_USE, SoundCategory.PLAYERS, soundVolume, 0.5f);
@@ -158,7 +135,6 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
                     tasks.add(scheduler.runTaskLater(
                             this,
                             () -> {
-                                if (!warpingPlayers.contains(player.getUniqueId())) return; // no-op for players removed from the active warping
                                 if (enableSounds)
                                     player.playSound(player.getLocation(), Sound.BLOCK_BELL_USE, SoundCategory.PLAYERS, soundVolume, pitch);
                                 if (enableMessages) player.sendMessage(message);
@@ -166,10 +142,9 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
                             20L * i));
                 }
             }
-            Location finalTarget = target;
             tasks.add(scheduler.runTaskLater(
                     this,
-                    () -> teleportPlayer(player, finalTarget),
+                    () -> teleportPlayer(player, home),
                     20L * teleportWindup
             ));
             warpingTasks.put(player.getUniqueId(), tasks);
@@ -188,8 +163,7 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
 
     private void terminatePlayerWarp(Player player) {
         UUID uuid = player.getUniqueId();
-        warpingPlayers.remove(uuid);
-        List<BukkitTask> tasks = warpingTasks.get(uuid);
+        List<BukkitTask> tasks = warpingTasks.remove(uuid);
         if (tasks != null) {
             tasks.forEach(BukkitTask::cancel);
         }
@@ -197,12 +171,11 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
 
     private void teleportPlayer(Player player, Location loc) {
         UUID uuid = player.getUniqueId();
-        boolean shouldWarp = warpingPlayers.remove(uuid);
-        if (!shouldWarp) return; // Don't warp players that died during the windup
+        List<BukkitTask> tasks = warpingTasks.remove(uuid);
+        if (tasks == null) return; // Don't warp players that got terminated during the windup
         if (player.isDead()) return; // Don't warp currently dead players
         player.teleport(loc);
-        World world = loc.getWorld();
-        if (enableSounds) world.playSound(loc, Sound.ENTITY_WARDEN_SONIC_BOOM, SoundCategory.PLAYERS, soundVolume, 1.0f);
+        if (enableSounds) loc.getWorld().playSound(loc, Sound.ENTITY_WARDEN_SONIC_BOOM, SoundCategory.PLAYERS, soundVolume, 1.0f);
         if (enableParticles) player.spawnParticle(Particle.GLOW, player.getLocation().clone().add(0, 1, 0), 100, 1, 1, 1, 1);
     }
 
@@ -221,14 +194,49 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
         teleportWindup = Math.max(0, config.getInt("windup", 3));
         enableParticles = config.getBoolean("enable-particles", true);
         enableSounds = config.getBoolean("enable-sounds", true);
-        defaultWorldSpawn = config.getBoolean("default-world-spawn", true);
         soundVolume = Math.clamp((float) config.getDouble("sound-effects-volume", 1.0), 0.0f, 1.0f);
         enableMessages = config.getBoolean("enable-messages", true);
     }
 
-    private boolean isLocationSafe(Location loc) {
+    private boolean isLocationVacant(Location loc) {
         Block feet = loc.getBlock();
         Block head = loc.clone().add(0, 1, 0).getBlock();
         return !feet.getType().isSolid() && !head.getType().isSolid();
+    }
+
+    private Location getWarpLocation(Player player) {
+        Location fallback = player.getRespawnLocation();
+        String fallbackDescription = "player spawn";
+        if (fallback == null) {
+            fallback = Bukkit.getWorlds().getFirst().getSpawnLocation();
+            fallbackDescription = "world spawn";
+        }
+
+        String playerHomeConfigPath = String.format("%s.%s", homesKey, player.getUniqueId());
+        if (!config.contains(playerHomeConfigPath)) {
+            player.sendMessage(Component.text(String.format("No home set. Use /sethome to set your home. Warping to %s instead.", fallbackDescription), NamedTextColor.YELLOW));
+            return fallback;
+        }
+
+        World world = Bukkit.getWorld(config.getString(playerHomeConfigPath + ".world"));
+        if (world == null) {
+            player.sendMessage(Component.text(String.format("Your home world is deleted! Warping to %s instead.", fallbackDescription), NamedTextColor.YELLOW));
+            return fallback;
+        }
+
+        Location home = new Location(
+                world,
+                config.getDouble(playerHomeConfigPath + ".x"),
+                config.getDouble(playerHomeConfigPath + ".y"),
+                config.getDouble(playerHomeConfigPath + ".z"),
+                (float) config.getDouble(playerHomeConfigPath + ".yaw"),
+                (float) config.getDouble(playerHomeConfigPath + ".pitch")
+        );
+        if (!isLocationVacant(home)) {
+            player.sendMessage(Component.text(String.format("Your home location is blocked. Warping to %s instead.", fallbackDescription), NamedTextColor.YELLOW));
+            return fallback;
+        }
+
+        return home;
     }
 }

@@ -2,7 +2,6 @@ homes: {}
 item-name: ""
 windup: 3
 enable-particles: true
+enable-messages: false
 enable-sounds: true
-enable-messages: true
-default-world-spawn: true
 sound-effects-volume: 1.0
