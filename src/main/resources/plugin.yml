@@ -7,3 +7,6 @@ commands:
   sethome:
     description: "Sets the location your Magic Mirror teleports"
     usage: /sethome
+  reloadmagicmirror:
+    description:  "Reload the config for magic mirror"
+    usage: /reloadmagicmirror

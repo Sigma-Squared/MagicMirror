@@ -26,8 +26,8 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
     private static final String homesKey = "homes";
     private Set<UUID> warpingPlayers = new HashSet<>();
 
-    private String itemName;
-    private int teleportWindup = 10;
+    private String itemName = "";
+    private int teleportWindup = 3;
     private boolean enableSounds  = true;
     private boolean enableParticles = true;
 
@@ -39,6 +39,7 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
         getLogger().info(String.format("Loaded %d homes.", getHomeCount()));
         Bukkit.getPluginManager().registerEvents(this, this);
         this.getCommand("sethome").setExecutor(this);
+        this.getCommand("reloadmagicmirror").setExecutor(this);
     }
 
     @Override
@@ -48,6 +49,13 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        String cmd = command.getName().toLowerCase();
+        if (cmd.equals("reloadmagicmirror")) {
+            reloadConfig();
+            sender.sendMessage("MagicMirror configuration reloaded.");
+            return true;
+        }
+
         if (!(sender instanceof Player player)) {
             sender.sendMessage("Only players can use this command.");
             return false;
@@ -78,6 +86,13 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
         if (event.getHand() != EquipmentSlot.HAND) return;
         ItemStack item = event.getPlayer().getInventory().getItemInMainHand();
         if (item.getType() != Material.RECOVERY_COMPASS) return;
+
+        if (!itemName.isEmpty()) {
+            if (!item.hasItemMeta()) return;
+            ItemMeta meta  = item.getItemMeta();
+            if (!meta.hasCustomName()) return;
+            if (!itemName.equals(meta.customName().toString())) return;
+        }
 
         event.setCancelled(true);
         Player player = event.getPlayer();
@@ -135,14 +150,15 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
 
     private int getHomeCount() {
         ConfigurationSection homesSection = config.getConfigurationSection(homesKey);
-        if (homesSection == null) {
-            return 0;
-        }
-        // Count direct child keys (UUIDs)
+        if (homesSection == null) return 0;
         return homesSection.getKeys(false).size();
     }
 
     private void readConfig() {
         config = this.getConfig();
+        itemName = config.getString("item-name", "");
+        teleportWindup = config.getInt("windup", 3);
+        enableParticles = config.getBoolean("enable-particles", true);
+        enableSounds = config.getBoolean("enable-sounds", true);
     }
 }
