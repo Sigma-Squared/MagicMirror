@@ -110,6 +110,7 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
 
         event.setCancelled(true);
         Player player = event.getPlayer();
+        if (!player.hasPermission("magicmirror.use")) return;
         UUID uuid = player.getUniqueId();
 
         if (warpingTasks.containsKey(uuid)) {

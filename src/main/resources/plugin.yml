@@ -7,6 +7,7 @@ commands:
   sethome:
     description: "Sets the location your Magic Mirror teleports"
     usage: /sethome
+    permission: magicmirror.use
   reloadmagicmirror:
     description:  "Reload the config for magic mirror"
     usage: /reloadmagicmirror
@@ -15,3 +16,6 @@ permissions:
   magicmirror.reload:
     description: "Allows reloading the MagicMirror configuration"
     default: op
+  magicmirror.use:
+    description: "Allows use of magic mirror"
+    default: true
