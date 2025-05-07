@@ -29,7 +29,7 @@ import java.util.*;
 public final class MagicMirror extends JavaPlugin implements Listener, CommandExecutor {
 
     private FileConfiguration config;
-    private static final String homesKey = "homes";
+    private static final String playerDataKey = "player-data";
     private Map<UUID, List<BukkitTask>> warpingTasks = new HashMap<>();
 
     private String itemName = "";
@@ -43,7 +43,7 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
     public void onEnable() {
         this.saveDefaultConfig();
         readConfig();
-        getLogger().info(String.format("Loaded %d homes.", getHomeCount()));
+        getLogger().info(String.format("Loaded configuration for %d players.", getPlayerDataCount()));
         Bukkit.getPluginManager().registerEvents(this, this);
         this.getCommand("sethome").setExecutor(this);
         this.getCommand("reloadmagicmirror").setExecutor(this);
@@ -75,12 +75,12 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
         Location loc = player.getLocation();
 
         // Store location in config
-        config.set(String.format("%s.%s.world", homesKey, uuid), loc.getWorld().getName());
-        config.set(String.format("%s.%s.x",     homesKey, uuid), loc.getX());
-        config.set(String.format("%s.%s.y",     homesKey, uuid), loc.getY());
-        config.set(String.format("%s.%s.z",     homesKey, uuid), loc.getZ());
-        config.set(String.format("%s.%s.yaw",   homesKey, uuid), loc.getYaw());
-        config.set(String.format("%s.%s.pitch", homesKey, uuid), loc.getPitch());
+        config.set(String.format("%s.%s.home.world", playerDataKey, uuid), loc.getWorld().getName());
+        config.set(String.format("%s.%s.home.x", playerDataKey, uuid), loc.getX());
+        config.set(String.format("%s.%s.home.y", playerDataKey, uuid), loc.getY());
+        config.set(String.format("%s.%s.home.z", playerDataKey, uuid), loc.getZ());
+        config.set(String.format("%s.%s.home.yaw", playerDataKey, uuid), loc.getYaw());
+        config.set(String.format("%s.%s.home.pitch", playerDataKey, uuid), loc.getPitch());
 
         saveConfig();
 
@@ -114,7 +114,7 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
         UUID uuid = player.getUniqueId();
 
         if (warpingTasks.containsKey(uuid)) {
-            player.sendMessage(Component.text("You are already warping.", NamedTextColor.DARK_RED));
+            player.sendMessage(Component.text("You are already warping home.", NamedTextColor.DARK_RED));
             return;
         }
 
@@ -180,13 +180,12 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
         if (enableParticles) player.spawnParticle(Particle.GLOW, player.getLocation().clone().add(0, 1, 0), 100, 1, 1, 1, 1);
     }
 
-    private int getHomeCount() {
-        ConfigurationSection homesSection = config.getConfigurationSection(homesKey);
-        if (homesSection == null) {
-            getLogger().warning("homes configuration is null.");
+    private int getPlayerDataCount() {
+        ConfigurationSection playerSection = config.getConfigurationSection(playerDataKey);
+        if (playerSection == null) {
             return 0;
         }
-        return homesSection.getKeys(false).size();
+        return playerSection.getKeys(false).size();
     }
 
     private void readConfig() {
@@ -213,13 +212,17 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
             fallbackDescription = "world spawn";
         }
 
-        String playerHomeConfigPath = String.format("%s.%s", homesKey, player.getUniqueId());
-        if (!config.contains(playerHomeConfigPath)) {
-            player.sendMessage(Component.text(String.format("No home set. Use /sethome to set your home. Warping to %s instead.", fallbackDescription), NamedTextColor.YELLOW));
+        String playerConfigPath = String.format("%s.%s", playerDataKey, player.getUniqueId());
+        if (!config.contains(playerConfigPath + ".home")) {
+            if (!config.getBoolean(playerConfigPath + ".setHomeMessageShown", false)) {
+                player.sendMessage(Component.text(String.format("No home set. Use /sethome to set your home. Warping to %s instead.", fallbackDescription), NamedTextColor.YELLOW));
+                config.set(playerConfigPath + ".setHomeMessageShown", true);
+                saveConfig();
+            }
             return fallback;
         }
 
-        World world = Bukkit.getWorld(config.getString(playerHomeConfigPath + ".world"));
+        World world = Bukkit.getWorld(config.getString(playerConfigPath + ".home.world"));
         if (world == null) {
             player.sendMessage(Component.text(String.format("Your home world is deleted! Warping to %s instead.", fallbackDescription), NamedTextColor.YELLOW));
             return fallback;
@@ -227,11 +230,11 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
 
         Location home = new Location(
                 world,
-                config.getDouble(playerHomeConfigPath + ".x"),
-                config.getDouble(playerHomeConfigPath + ".y"),
-                config.getDouble(playerHomeConfigPath + ".z"),
-                (float) config.getDouble(playerHomeConfigPath + ".yaw"),
-                (float) config.getDouble(playerHomeConfigPath + ".pitch")
+                config.getDouble(playerConfigPath + ".home.x"),
+                config.getDouble(playerConfigPath + ".home.y"),
+                config.getDouble(playerConfigPath + ".home.z"),
+                (float) config.getDouble(playerConfigPath + ".home.yaw"),
+                (float) config.getDouble(playerConfigPath + ".home.pitch")
         );
         if (!isLocationVacant(home)) {
             player.sendMessage(Component.text(String.format("Your home location is blocked. Warping to %s instead.", fallbackDescription), NamedTextColor.YELLOW));
