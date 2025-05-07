@@ -16,7 +16,7 @@
 | Command          | Description                              |
 |------------------|------------------------------------------|
 | `/sethome`       | Sets your personal home location.        |
-| `/reloadmirror`  | Reloads plugin configuration in-game.    |
+| `/reloadmagicmirror`  | Reloads plugin configuration in-game.    |
 
 ## 🔧 Permissions
 
