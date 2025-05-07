@@ -2,6 +2,9 @@
 
 **MagicMirror** aims to add an adventure-friendly recovery mechanic to minecraft, similar to the [Magic Mirror](https://terraria.fandom.com/wiki/Magic_Mirrors) in Terraria. It uses the underutilized **Recovery Compass**, with added particle and sound effects!
 
+## 💡 How to use
+Get yourself a **recovery compass**, and right click anywhere. It will start a countdown, then teleport you back to your `/sethome`, player spawn, or world spawn; whichever is available first.
+
 ## ⚙️ Features
 - **Zero configuration** - even by players. Works out of the box. Players without a set home will be warped to their respawn point or world spawn, whichever has been set.
 - **Survival-focused** - prevent players from abusing teleportation using windup.
@@ -26,8 +29,8 @@
 | `magicmirror.reload`   | **op**     | Allows players to reload the config in-game.    |
 
 
-## 📝 Configuration and default values (config.yml)
-
+## 📝 Configuration and default values
+`config.yml`
 ```yaml
 item-name: "" # If set to anything other than an empty string, the recovery compass must also be named this exact name in an anvil in order to be used.
 windup: 3 # The amount of seconds the player must wait after clicking until the teleport happens. Setting this to 0 teleports the player instantly.
