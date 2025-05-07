@@ -30,7 +30,7 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
 
     private FileConfiguration config;
     private static final String playerDataKey = "player-data";
-    private Map<UUID, List<BukkitTask>> warpingTasks = new HashMap<>();
+    private final Map<UUID, List<BukkitTask>> warpingTasks = new HashMap<>();
 
     private String itemName = "";
     private int teleportWindup = 3;
@@ -108,9 +108,11 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
             if (!plainTextCustomName.equals(itemName)) return;
         }
 
-        event.setCancelled(true);
         Player player = event.getPlayer();
         if (!player.hasPermission("magicmirror.use")) return;
+
+        event.setCancelled(true); // all checks passed, player can use warp ability. Prevent default action.
+
         UUID uuid = player.getUniqueId();
 
         if (warpingTasks.containsKey(uuid)) {
@@ -126,7 +128,7 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
         } else {
             if (enableMessages) player.sendMessage(Component.text(String.format("Warping home in %d...", teleportWindup), NamedTextColor.GREEN));
             if (enableSounds) player.playSound(player.getLocation(), Sound.BLOCK_BELL_USE, SoundCategory.PLAYERS, soundVolume, 0.5f);
-            if (enableParticles) player.spawnParticle(Particle.GLOW, player.getLocation().clone().add(0, 1, 0), 100, 1, 1, 1, 1);
+            if (enableParticles) player.getWorld().spawnParticle(Particle.GLOW, player.getLocation().clone().add(0, 1, 0), 100, 1, 1, 1, 1);
             BukkitScheduler scheduler = Bukkit.getScheduler();
             List<BukkitTask> tasks = new ArrayList<>();
             if (enableMessages || enableSounds) {
@@ -176,8 +178,9 @@ public final class MagicMirror extends JavaPlugin implements Listener, CommandEx
         if (tasks == null) return; // Don't warp players that got terminated during the windup
         if (player.isDead()) return; // Don't warp currently dead players
         player.teleport(loc);
-        if (enableSounds) loc.getWorld().playSound(loc, Sound.ENTITY_WARDEN_SONIC_BOOM, SoundCategory.PLAYERS, soundVolume, 1.0f);
-        if (enableParticles) player.spawnParticle(Particle.GLOW, player.getLocation().clone().add(0, 1, 0), 100, 1, 1, 1, 1);
+        World world = loc.getWorld();
+        if (enableSounds) world.playSound(loc, Sound.ENTITY_WARDEN_SONIC_BOOM, SoundCategory.PLAYERS, soundVolume, 1.0f);
+        if (enableParticles) world.spawnParticle(Particle.GLOW, player.getLocation().clone().add(0, 1, 0), 100, 1, 1, 1, 1);
     }
 
     private int getPlayerDataCount() {
